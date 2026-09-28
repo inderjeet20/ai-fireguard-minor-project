@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FireGuard - Wildfire Risk & Safe Evacuation</title>
+  
+  <!-- Modern Clean Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet GIS Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <!-- Product Minimal CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fullscreen App Layout -->
+  <div class="app-viewport">
+
+    <!-- Top Minimal Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <div class="app-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3z"></path>
+          </svg>
+        </div>
+        <div>
+          <span class="app-title">FireGuard</span>
+          <span class="app-region">Uttarakhand</span>
+        </div>
+      </div>
+
+      <!-- Live Center Metrics Pill -->
+      <div class="nav-center">
+        <div class="live-pill">
+          <span class="pulse-dot"></span>
+          <span id="activeFiresCountText">Loading satellite feed...</span>
+        </div>
+        <div class="shelter-pill">
+          <span class="shelter-dot"></span>
+          <span>6 Active Safe Shelters</span>
+        </div>
+      </div>
+
+      <!-- Right Actions: Basemap Switcher & Test Modal -->
+      <div class="nav-right">
+        <div class="segmented-control" id="mapThemeSwitch">
+          <button class="segment-btn active" data-theme="voyager">Voyager</button>
+          <button class="segment-btn" data-theme="dark">Dark Matter</button>
+          <button class="segment-btn" data-theme="light">Positron</button>
+        </div>
+        <button id="openTestsBtn" class="btn-text">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+          Test Suite (TC-01–06)
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Full-Screen Map -->
+    <div id="map" class="fullscreen-map"></div>
+
+    <!-- Floating Operational Panel (Left) -->
+    <aside class="floating-panel">
+      <!-- Mode Switcher -->
+      <div class="panel-mode-toggle">
+        <button class="mode-tab active" data-mode="routing">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+          Safe Evacuation
+        </button>
+        <button class="mode-tab" data-mode="predict">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          Risk Model
+        </button>
+      </div>
+
+      <!-- MODE 1: Safe Evacuation Routing -->
+      <div id="modeRouting" class="panel-section active">
+        <div class="field-group">
+          <label class="field-label">Current Location (Start Point)</label>
+          <select id="routeSource" class="input-select">
+            <option value="RISHIKESH" selected>Rishikesh (Valley Base)</option>
+            <option value="DEHRADUN">Dehradun (State Hub)</option>
+            <option value="RAMNAGAR">Ramnagar (Corbett Border)</option>
+            <option value="KOTDWAR">Kotdwar (Foothills)</option>
+            <option value="CHAMBA">Chamba (Tehri Heights)</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Safe Evacuation Hub</label>
+          <select id="routeDestination" class="input-select">
+            <option value="SRINAGAR" selected>Srinagar (Garhwal Valley Hub)</option>
+            <option value="HARIDWAR">Haridwar Safe Shelter Hub</option>
+            <option value="NAINITAL">Nainital Lake Safety Compound</option>
+            <option value="ALMORA">Almora District Relief Camp</option>
+            <option value="HALDWANI">Haldwani Sports Complex Shelter</option>
+          </select>
+        </div>
+
+        <!-- Minimal Hazard / Blockage Toggle -->
+        <div class="hazard-toggle-card">
+          <div class="toggle-row">
+            <div>
+              <span class="toggle-title">Simulate Road Hazard Blockage</span>
+              <span class="toggle-desc">Blocks NH-7 Direct River Gorge (Active Fire)</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockDirectGorge" value="e_rsh_dev">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <button id="calculateRouteBtn" class="btn-action">
+          Compute Optimal Route
+        </button>
+
+        <!-- Route Comparison Result Card -->
+        <div id="routeResultsCard" class="route-summary-card" style="display: none;">
+          <div class="summary-top">
+            <span class="summary-tag" id="thesisBadge">AI Detour Recommended</span>
+            <span class="saving-metric" id="hazardReductionPill">-78% Hazard</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-col direct-col">
+              <span class="metric-label">Direct (Shortest)</span>
+              <span class="metric-number" id="shortestDist">71 km</span>
+              <span class="metric-hazard hazard-danger" id="shortestHazard">Hazard: High (0.88)</span>
+            </div>
+            <div class="metric-col safe-col">
+              <span class="metric-label">Safest Detour (AI)</span>
+              <span class="metric-number" id="safestDist">103 km</span>
+              <span class="metric-hazard hazard-safe" id="safestHazard">Hazard: Low (0.14)</span>
+            </div>
+          </div>
+
+          <p class="thesis-note" id="thesisText">
+            "The shortest route is not necessarily the safest route." The AI avoided the dangerous gorge fire zone.
+          </p>
+
+          <div class="route-trail" id="pathNodesList"></div>
+        </div>
+      </div>
+
+      <!-- MODE 2: AI Risk Prediction (ML) -->
+      <div id="modePredict" class="panel-section">
+        <!-- Minimal Presets -->
+        <div class="preset-strip">
+          <button class="preset-chip" data-preset="cool_wet">Cool / Wet</button>
+          <button class="preset-chip" data-preset="normal">Normal</button>
+          <button class="preset-chip" data-preset="dry_hot">Dry / Hot</button>
+          <button class="preset-chip" data-preset="extreme">Extreme</button>
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <span>Temperature</span>
+            <span id="tempValue" class="mono-val">36°C</span>
+          </div>
+          <input type="range" id="tempInput" min="-10" max="50" step="0.5" value="36" class="range-input">
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <span>Relative Humidity</span>
+            <span id="humidityValue" class="mono-val">24%</span>
+          </div>
+          <input type="range" id="humidityInput" min="0" max="100" step="1" value="24" class="range-input">
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <span>Wind Speed</span>
+            <span id="windValue" class="mono-val">28 km/h</span>
+          </div>
+          <input type="range" id="windInput" min="0" max="80" step="1" value="28" class="range-input">
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <span>Precipitation / Rain</span>
+            <span id="rainValue" class="mono-val">0 mm</span>
+          </div>
+          <input type="range" id="rainInput" min="0" max="100" step="1" value="0" class="range-input">
+        </div>
+
+        <!-- Result Badge & Factors -->
+        <div class="risk-gauge-container">
+          <div class="risk-gauge-badge" id="riskClassTag">
+            <span class="risk-score-num" id="riskScoreNumber">0.78</span>
+            <span class="risk-level-name" id="riskCategoryText">HIGH RISK</span>
+          </div>
+          <p class="risk-sub-desc" id="riskGuidanceText">Severe wildfire danger. Preparedness and evacuation readiness required.</p>
+        </div>
+
+        <div class="factor-mini-bars">
+          <div class="factor-mini-row">
+            <span>Temp Factor</span>
+            <div class="bar-track"><div id="barTemp" class="bar-fill" style="width: 64%;"></div></div>
+            <span id="factorTemp" class="mono-val">64%</span>
+          </div>
+          <div class="factor-mini-row">
+            <span>Dryness (Low Hum)</span>
+            <div class="bar-track"><div id="barDry" class="bar-fill" style="width: 95%;"></div></div>
+            <span id="factorDry" class="mono-val">95%</span>
+          </div>
+          <div class="factor-mini-row">
+            <span>Wind Spread</span>
+            <div class="bar-track"><div id="barWind" class="bar-fill" style="width: 70%;"></div></div>
+            <span id="factorWind" class="mono-val">70%</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Floating Map Controls (Bottom Right) -->
+    <div class="map-controls-floating">
+      <div class="legend-pill">
+        <span class="legend-dot fire"></span> Active Fire
+        <span class="legend-dot direct"></span> Direct
+        <span class="legend-dot safe"></span> Safe Detour
+        <span class="legend-dot shelter"></span> Shelter
+      </div>
+      <button id="recenterBtn" class="btn-map-control" title="Recenter Map">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="12 8 8 12 12 16 12 8"></polygon></svg>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Modal for Test Cases (TC-01 to TC-06) -->
+  <div id="testModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Synopsis Verification Suite</h2>
+          <p class="modal-desc">Automated test cases (TC-01 through TC-06) from project synopsis.</p>
+        </div>
+        <button id="closeTestsBtn" class="btn-close">&times;</button>
+      </div>
+
+      <div class="modal-stats">
+        <div class="mstat"><span class="mstat-num">6</span> Total</div>
+        <div class="mstat"><span class="mstat-num text-success" id="modalPassedCount">6</span> Passed</div>
+        <div class="mstat"><span class="mstat-num" id="modalFailedCount">0</span> Failed</div>
+      </div>
+
+      <div id="modalTestList" class="modal-test-list">
+        <!-- Populated dynamically via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet GIS JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Application JS -->
+  <script src="js/app.js"></script>
+</body>
+</html>
