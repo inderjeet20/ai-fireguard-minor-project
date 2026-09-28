@@ -6,6 +6,8 @@ Serves REST API endpoints for Vercel serverless deployment and local uvicorn run
 import os
 from pathlib import Path
 from typing import Optional, List
+from urllib.parse import parse_qs, urlencode
+
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,15 +24,17 @@ from api.services.nasa_firms import firms_service
 from api.services.ml_model import ml_engine, EnvironmentalInput
 from api.services.routing import router_service
 
-# Initialize FastAPI App
-app = FastAPI(
+# ---------------------------------------------------------------------------
+# FastAPI App (all routes registered on this instance)
+# ---------------------------------------------------------------------------
+_fastapi_app = FastAPI(
     title="AI FireGuard API",
     description="Intelligent Wildfire Risk Prediction & Safe Evacuation Routing System",
     version="1.0.0"
 )
 
 # Enable CORS for cross-origin or local testing
-app.add_middleware(
+_fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -43,11 +47,11 @@ CURRENT_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = CURRENT_DIR.parent / "public"
 
 if PUBLIC_DIR.exists():
-    app.mount("/public", StaticFiles(directory=str(PUBLIC_DIR)), name="public")
+    _fastapi_app.mount("/public", StaticFiles(directory=str(PUBLIC_DIR)), name="public")
     if (PUBLIC_DIR / "css").exists():
-        app.mount("/css", StaticFiles(directory=str(PUBLIC_DIR / "css")), name="css")
+        _fastapi_app.mount("/css", StaticFiles(directory=str(PUBLIC_DIR / "css")), name="css")
     if (PUBLIC_DIR / "js").exists():
-        app.mount("/js", StaticFiles(directory=str(PUBLIC_DIR / "js")), name="js")
+        _fastapi_app.mount("/js", StaticFiles(directory=str(PUBLIC_DIR / "js")), name="js")
 
 
 # Pydantic models for Routing request
@@ -58,7 +62,7 @@ class RouteRequest(BaseModel):
     risk_multiplier: Optional[float] = Field(default=6.0, description="Risk penalty factor alpha")
 
 
-@app.get("/")
+@_fastapi_app.get("/")
 async def root():
     """Serves the main dashboard page."""
     index_file = PUBLIC_DIR / "index.html"
@@ -71,7 +75,7 @@ async def root():
     }
 
 
-@app.get("/api/health")
+@_fastapi_app.get("/api/health")
 async def health_check():
     """Health check and region metadata."""
     return {
@@ -84,7 +88,7 @@ async def health_check():
     }
 
 
-@app.get("/api/hotspots")
+@_fastapi_app.get("/api/hotspots")
 async def get_hotspots(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (default: 2026-04-20)"),
     days: Optional[int] = Query(5, description="Day range lookback (1 to 10)")
@@ -96,7 +100,7 @@ async def get_hotspots(
     return data
 
 
-@app.post("/api/predict")
+@_fastapi_app.post("/api/predict")
 async def predict_risk(payload: EnvironmentalInput):
     """
     Evaluates fire risk using the machine learning engine (TC-01, TC-02, TC-03).
@@ -115,7 +119,7 @@ async def predict_risk(payload: EnvironmentalInput):
         )
 
 
-@app.get("/api/network")
+@_fastapi_app.get("/api/network")
 async def get_network():
     """
     Returns the evacuation road network, nodes, edges, and designated safe shelters.
@@ -123,7 +127,7 @@ async def get_network():
     return router_service.get_network_overview()
 
 
-@app.post("/api/route")
+@_fastapi_app.post("/api/route")
 async def calculate_route(req: RouteRequest):
     """
     Calculates both shortest distance path and risk-aware safest evacuation path.
@@ -145,7 +149,7 @@ async def calculate_route(req: RouteRequest):
         raise HTTPException(status_code=500, detail=f"Routing failure: {str(e)}")
 
 
-@app.get("/api/test-cases")
+@_fastapi_app.get("/api/test-cases")
 async def run_test_cases():
     """
     Runs automated evaluation of TC-01 through TC-06 from the synopsis,
@@ -353,3 +357,40 @@ async def run_test_cases():
         "failed": sum(1 for r in results if r["status"] == "FAILED"),
         "test_results": results
     }
+
+
+# ---------------------------------------------------------------------------
+# Vercel Path-Restore Middleware
+#
+# Vercel's rewrite rule `/api/(.*)` → `/api/index.py?__path=$1` replaces the
+# actual request path with the literal "/api/index.py".  This ASGI middleware
+# reads the injected `__path` query param and reconstructs the real path
+# (e.g. "/api/hotspots") so FastAPI can match its routes correctly.
+# ---------------------------------------------------------------------------
+class VercelPathRestoreMiddleware:
+    def __init__(self, inner_app):
+        self.inner_app = inner_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            qs = scope.get("query_string", b"").decode()
+            params = parse_qs(qs)
+            if "__path" in params:
+                original_path = params["__path"][0]
+                # Ensure it starts with /api/ (Vercel captures only "hotspots" etc.)
+                if not original_path.startswith("/"):
+                    restored = "/api/" + original_path
+                else:
+                    restored = original_path
+                scope["path"] = restored
+                scope["raw_path"] = restored.encode()
+                # Strip __path so it doesn't appear as an unexpected query param
+                filtered = {k: v for k, v in params.items() if k != "__path"}
+                scope["query_string"] = urlencode(
+                    {k: v[0] for k, v in filtered.items()}
+                ).encode()
+        await self.inner_app(scope, receive, send)
+
+
+# `app` is what Vercel (and uvicorn in run.py) calls — wrap after all routes defined
+app = VercelPathRestoreMiddleware(_fastapi_app)
